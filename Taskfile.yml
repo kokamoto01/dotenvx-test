@@ -1,0 +1,47 @@
+version: '3'
+
+vars:
+  AWS_PROFILE: test
+  PERSONAL_KEYS: [GITHUB_USER,GITHUB_TOKEN, TF_VAR_DATADOG_API_KEY]
+
+tasks:
+  # 初期化
+  init:
+    desc: initialize dotenvx & create .env.keys and .env.personal
+    cmds:
+      # - npm install @dotenvx/dotenvx --save
+      - |
+        echo "DOTENV_PRIVATE_KEY_PUBLIC=$( \
+          aws ssm get-parameter \
+            --profile {{.AWS_PROFILE}} \
+            --name 'DOTENV_PRIVATE_KEY_PUBLIC' \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text \
+        )" > .env.keys
+      - |
+        if [ ! -f .env.personal ]; then
+          touch .env.personal
+        fi
+      - for: { var: PERSONAL_KEYS }
+        cmd: |
+          grep -q "^{{.ITEM}}=" .env.personal || echo "{{.ITEM}}=" >> .env.personal
+
+  # 環境変数セット
+  set-dotenv:
+    desc: set environment variable
+    silent: true
+    vars:
+      CLI_ARGS: "{{.CLI_ARGS}}"
+    cmds:
+      - |
+        ARG=$(echo "{{.CLI_ARGS}}" | sed "s/^['\"]//;s/['\"]$//")
+        KEY=$(echo "$ARG" | cut -d= -f1)
+        VALUE=$(echo "$ARG" | cut -d= -f2-)
+        if [ -z "$KEY" ] || [ -z "$VALUE" ]; then
+          echo "エラー: KEY=VALUE形式で指定してください"
+          echo "例: task set-dotenv -- YOUR_ENV=xxx"
+          exit 1
+        fi
+        dotenvx set "$KEY" "$VALUE" -f .env.public
+      # npx dotenvx set "$KEY" "$VALUE" -f .env.public
